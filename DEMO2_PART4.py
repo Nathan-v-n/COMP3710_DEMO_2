@@ -32,7 +32,7 @@ class OasisDataset(Dataset):
             image = self.transform(image)
         return image
 
-def load_oasis_dataloaders(data_dir="OASIS", img_size=128, batch_size=64):
+def load_oasis_dataloaders(data_dir, img_size=128, batch_size=64):
     transform = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor()
@@ -150,7 +150,7 @@ def train_vae(model, train_loader, val_loader, device, epochs=20, lr=1e-3):
 def visualize_reconstruction(model, test_loader, device, out_file="reconstruction.png"):
     model.eval()
     with torch.no_grad():
-        x, _ = next(iter(test_loader))
+        x = next(iter(test_loader))
         x = x.to(device)
         recon, _, _ = model(x)
         # Take first 8 samples
@@ -173,7 +173,7 @@ def visualize_latent_space(model, test_loader, device, out_file="latent_space.pn
     model.eval()
     zs = []
     with torch.no_grad():
-        for x, _ in test_loader:
+        for x in test_loader:
             x = x.to(device)
             mu, logvar = model.encode(x)
             zs.append(mu.cpu())
@@ -187,21 +187,17 @@ def visualize_latent_space(model, test_loader, device, out_file="latent_space.pn
     plt.show()
 
 
-# =====================================================
-# Main
-# =====================================================
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-    train_loader, val_loader, test_loader = load_oasis_png("OASIS", img_size=128, batch_size=64)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+train_loader, val_loader, test_loader = load_oasis_png("OASIS", img_size=128, batch_size=64)
 
-    model = VAE(latent_dim=2).to(device)
-    print("Training VAE...")
-    train_vae(model, train_loader, val_loader, device, epochs=1, lr=1e-3)
-    print("Training complete.")
+model = VAE(latent_dim=2).to(device)
+print("Training VAE...")
+train_vae(model, train_loader, val_loader, device, epochs=20, lr=1e-3)
+print("Training complete.")
 
-    # Visualizations
-    print("Visualizing reconstructions...")
-    visualize_reconstruction(model, test_loader, device)
-    print("Visualizing latent space...")
-    visualize_latent_space(model, test_loader, device)
+# Visualizations
+print("Visualizing reconstructions...")
+visualize_reconstruction(model, test_loader, device)
+print("Visualizing latent space...")
+visualize_latent_space(model, test_loader, device)
