@@ -2,14 +2,53 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
+from PIL import Image
+
 
 
 # =====================================================
 # Dataset loader
 # =====================================================
+
+class OasisDataset(Dataset):
+    def __init__(self, root_dir, img_size=128, transform=None):
+        self.root_dir = root_dir
+        self.image_files = [f for f in os.listdir(root_dir) if f.endswith(".png")]
+        self.transform = transform or transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.root_dir, self.image_files[idx])
+        image = Image.open(img_path).convert("L")  # grayscale
+        if self.transform:
+            image = self.transform(image)
+        return image
+
+def load_oasis_dataloaders(data_dir="OASIS", img_size=128, batch_size=64):
+    transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor()
+    ])
+
+    train_dataset = OasisDataset(os.path.join(data_dir, "keras_png_slices_train"), img_size, transform)
+    val_dataset   = OasisDataset(os.path.join(data_dir, "keras_png_slices_validate"), img_size, transform)
+    test_dataset  = OasisDataset(os.path.join(data_dir, "keras_png_slices_test"), img_size, transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    return train_loader, val_loader, test_loader
+
+
 def load_oasis_png(data_dir="OASIS", img_size=128, batch_size=64):
     """
     Load MRI PNG slices from OASIS dataset using torchvision.datasets.ImageFolder.
@@ -21,17 +60,8 @@ def load_oasis_png(data_dir="OASIS", img_size=128, batch_size=64):
         transforms.ToTensor(),  # [0,1]
     ])
 
-    train_dataset = datasets.ImageFolder(root=os.path.join(data_dir, "keras_png_slices_train"),
-                                         transform=transform)
-    val_dataset = datasets.ImageFolder(root=os.path.join(data_dir, "keras_png_slices_validate"),
-                                       transform=transform)
-    test_dataset = datasets.ImageFolder(root=os.path.join(data_dir, "keras_png_slices_test"),
-                                        transform=transform)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-
+    train_loader, val_loader, test_loader = load_oasis_dataloaders("OASIS", img_size=128, batch_size=64)
+    print("Data loaders created.")
     return train_loader, val_loader, test_loader
 
 
@@ -55,6 +85,7 @@ class VAE(nn.Module):
         self.dec_deconv1 = nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1)
         self.dec_deconv2 = nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1)
         self.dec_deconv3 = nn.ConvTranspose2d(32, 1, 4, stride=2, padding=1)
+        print("VAE model initialized.")
 
     def encode(self, x):
         h = F.relu(self.enc_conv1(x))
@@ -102,7 +133,7 @@ def train_vae(model, train_loader, val_loader, device, epochs=20, lr=1e-3):
     model.train()
     for epoch in range(1, epochs + 1):
         train_loss = 0
-        for x, _ in train_loader:
+        for x in train_loader:
             x = x.to(device)
             optimizer.zero_grad()
             recon, mu, logvar = model(x)
@@ -161,11 +192,16 @@ def visualize_latent_space(model, test_loader, device, out_file="latent_space.pn
 # =====================================================
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
     train_loader, val_loader, test_loader = load_oasis_png("OASIS", img_size=128, batch_size=64)
 
     model = VAE(latent_dim=2).to(device)
-    train_vae(model, train_loader, val_loader, device, epochs=20, lr=1e-3)
+    print("Training VAE...")
+    train_vae(model, train_loader, val_loader, device, epochs=1, lr=1e-3)
+    print("Training complete.")
 
     # Visualizations
+    print("Visualizing reconstructions...")
     visualize_reconstruction(model, test_loader, device)
+    print("Visualizing latent space...")
     visualize_latent_space(model, test_loader, device)
